@@ -1,0 +1,82 @@
+name: Quality (Node)
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: "20"
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      install-command:
+        description: "Command used to install dependencies"
+        required: false
+        type: string
+        default: "npm ci"
+      lint-command:
+        required: false
+        type: string
+        default: "npm run lint"
+      test-command:
+        required: false
+        type: string
+        default: ""
+      working-directory:
+        required: false
+        type: string
+        default: "."
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: "npm"
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install dependencies
+        run: ${{ inputs.install-command }}
+
+      - name: Run linter
+        run: ${{ inputs.lint-command }}
+
+  test:
+    name: Test
+    if: ${{ inputs.test-command != '' }}
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: "npm"
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install dependencies
+        run: ${{ inputs.install-command }}
+
+      - name: Run tests
+        run: ${{ inputs.test-command }}

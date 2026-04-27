@@ -1,0 +1,97 @@
+name: Ansible apply
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Ref of cash-track/infra to check out"
+        required: false
+        type: string
+        default: "main"
+      playbook:
+        description: "Playbook to run, relative to ansible/ directory"
+        required: false
+        type: string
+        default: "site.yml"
+      tags:
+        description: "Optional --tags filter"
+        required: false
+        type: string
+        default: ""
+      limit:
+        description: "Optional --limit filter"
+        required: false
+        type: string
+        default: ""
+      check_mode:
+        description: "Run in --check (dry-run) mode"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      OP_SERVICE_ACCOUNT_TOKEN:
+        required: true
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: true
+      SPACES_TFSTATE_ID:
+        required: false
+      SPACES_TFSTATE_KEY:
+        required: false
+
+concurrency:
+  group: ansible-apply-prod
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cash-track/infra
+        uses: actions/checkout@v4
+        with:
+          repository: cash-track/infra
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible and collections
+        working-directory: ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ansible-core>=2.17"
+          ansible-galaxy collection install -r requirements.yml
+
+      - name: Install 1Password CLI
+        uses: 1password/install-cli-action@v1
+
+      - name: Join tailnet (ephemeral)
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Run Ansible
+        working-directory: ansible
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          SPACES_TFSTATE_ID: ${{ secrets.SPACES_TFSTATE_ID }}
+          SPACES_TFSTATE_KEY: ${{ secrets.SPACES_TFSTATE_KEY }}
+          ANSIBLE_FORCE_COLOR: "1"
+        run: |
+          args=()
+          if [[ -n "${{ inputs.tags }}" ]]; then
+            args+=(--tags "${{ inputs.tags }}")
+          fi
+          if [[ -n "${{ inputs.limit }}" ]]; then
+            args+=(--limit "${{ inputs.limit }}")
+          fi
+          if [[ "${{ inputs.check_mode }}" == "true" ]]; then
+            args+=(--check --diff)
+          fi
+          ansible-playbook "${{ inputs.playbook }}" "${args[@]}"

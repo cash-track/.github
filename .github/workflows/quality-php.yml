@@ -1,0 +1,168 @@
+name: Quality (PHP)
+
+on:
+  workflow_call:
+    inputs:
+      php-version:
+        required: false
+        type: string
+        default: "8.4"
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      php-extensions:
+        required: false
+        type: string
+        default: "zip, xsl, dom, exif, intl, pcntl, bcmath, sockets, mbstring, pdo_mysql, mysqli, redis, grpc"
+      mysql-image:
+        required: false
+        type: string
+        default: "cashtrack/mysql:latest"
+      redis-image:
+        required: false
+        type: string
+        default: "cashtrack/redis:latest"
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+      upload-coverage:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+
+jobs:
+  static-analysis:
+    name: Static Analysis
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          extensions: ${{ inputs.php-extensions }}
+          tools: composer
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install --no-progress --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Run Psalm
+        run: composer run psalm
+
+  coding-standards:
+    name: Coding Standards
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          extensions: ${{ inputs.php-extensions }}
+          tools: composer
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install --no-progress --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Run PHP_CodeSniffer
+        run: composer run phpcs
+
+  tests:
+    name: Tests
+    if: ${{ inputs.run-tests }}
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+
+    services:
+      cache:
+        image: ${{ inputs.redis-image }}
+        ports:
+          - 6379
+      database:
+        image: ${{ inputs.mysql-image }}
+        env:
+          MYSQL_ROOT_PASSWORD: secret
+          MYSQL_DATABASE: cashtrack
+          MYSQL_USER: cashtrack
+          MYSQL_PASSWORD: secret
+        ports:
+          - 3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          coverage: pcov
+          extensions: ${{ inputs.php-extensions }}
+          tools: composer, phpunit
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Setup application
+        run: |
+          cp .env.actions .env
+          composer install --no-progress --no-interaction --prefer-dist --optimize-autoloader
+          php app.php encrypt:key -m .env
+          php app.php rsa:gen -m .env
+          php app.php configure -vv
+          vendor/bin/rr get --quiet
+          php app.php migrate:init
+          php app.php migrate -s -n
+
+      - name: Run PHPUnit
+        run: composer run phpunit:ci
+
+      - name: Upload coverage to Codecov
+        if: ${{ inputs.upload-coverage }}
+        continue-on-error: true
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml

@@ -1,0 +1,97 @@
+name: Quality (Go)
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        required: false
+        type: string
+        default: "1.26"
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      golangci-lint-version:
+        required: false
+        type: string
+        default: "v2.11.2"
+      test-packages:
+        description: "Go list pattern for the test step"
+        required: false
+        type: string
+        default: "./..."
+      cgo-enabled:
+        required: false
+        type: string
+        default: "1"
+      upload-coverage:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+
+jobs:
+  build-and-lint:
+    name: Build & Lint
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+
+      - name: Install GCC
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Build
+        env:
+          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+        run: |
+          go mod download
+          go build -race -v ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: ${{ inputs.golangci-lint-version }}
+
+  tests:
+    name: Tests
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+
+      - name: Install GCC
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Test
+        env:
+          CGO_ENABLED: ${{ inputs.cgo-enabled }}
+        run: |
+          go test -race -coverprofile=coverage.txt -covermode=atomic -v ${{ inputs.test-packages }}
+
+      - name: Upload coverage to Codecov
+        if: ${{ inputs.upload-coverage }}
+        uses: codecov/codecov-action@v5
+        continue-on-error: true
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.txt
