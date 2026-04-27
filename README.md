@@ -7,9 +7,16 @@ Reusable GitHub Actions workflows shared across the `cash-track` org. Each workf
 
 ### `ship-service.yml` — build, push, and deploy a service
 
-Tag-driven release pipeline used by `api`, `gateway`, `frontend`, and `website`. Builds the
+Tag-driven release pipeline used by every cashtrack-owned service repo: `api`, `gateway`,
+`frontend`, `website`, plus the infra images `mysql`, `redis`, `mysql-backup`. Builds the
 Docker image, pushes it to Docker Hub, joins the tailnet as `tag:ci`, and runs the on-droplet
 `/opt/cashtrack/bin/deploy-service` script over Tailscale SSH (no PAT, no SSH key in CI).
+
+The deploy script edits `VERSION_<SERVICE>` in `/opt/cashtrack/.env` (the service name is
+upper-cased and `-` → `_`, so `mysql-backup` resolves to `VERSION_MYSQL_BACKUP`), then
+`docker compose pull <service> && docker compose up -d --no-deps <service>`. Restart-style
+recreation is acceptable for stateless services and tolerated for `mysql`/`redis` (brief
+downtime on image bump). `mysql-backup` is a cron container so restart is trivial.
 
 Inputs:
 
