@@ -1,0 +1,59 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "Compose service name (api, gateway, mysql, redis, …)"
+        required: true
+        type: string
+      tag:
+        description: "Image tag to deploy — used verbatim"
+        required: true
+        type: string
+      run_migrations:
+        description: "Run DB migrations on the api service before recreating the container"
+        required: false
+        type: boolean
+        default: false
+      droplet_host:
+        description: "Tailscale hostname of the droplet"
+        required: false
+        type: string
+        default: "cashtrack-prod-0"
+      droplet_user:
+        required: false
+        type: string
+        default: "ops"
+    secrets:
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: true
+
+concurrency:
+  group: deploy-${{ inputs.service }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Join tailnet (ephemeral)
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Run deploy-service on droplet
+        env:
+          SERVICE: ${{ inputs.service }}
+          TAG: ${{ inputs.tag }}
+          RUN_MIGRATIONS: ${{ inputs.run_migrations }}
+          DROPLET_HOST: ${{ inputs.droplet_host }}
+          DROPLET_USER: ${{ inputs.droplet_user }}
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new "${DROPLET_USER}@${DROPLET_HOST}" \
+            "/opt/cashtrack/bin/deploy-service ${SERVICE} ${TAG} ${RUN_MIGRATIONS}"
