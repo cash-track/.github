@@ -31,10 +31,18 @@ on:
         type: string
         default: "latest=auto"
       build_args:
-        description: "Newline-separated KEY=VALUE build args"
+        description: |
+          Newline-separated KEY=VALUE build args. Defaults to GIT_COMMIT and
+          GIT_TAG so Dockerfiles can stamp the image with provenance metadata
+          (ARG GIT_COMMIT / ARG GIT_TAG). Repos whose Dockerfile does not
+          reference these will simply ignore them. Override only when the
+          caller needs additional args — re-specify GIT_COMMIT/GIT_TAG in
+          the override if you still want them.
         required: false
         type: string
-        default: ""
+        default: |
+          GIT_COMMIT=${{ github.sha }}
+          GIT_TAG=${{ github.ref_name }}
       attest:
         description: "Generate and push build provenance attestation"
         required: false

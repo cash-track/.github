@@ -36,7 +36,7 @@ Inputs:
 | `dockerfile` | no | `Dockerfile` | Dockerfile path relative to `context` |
 | `tag_rules` | no | `type=sha` + `type=semver,pattern={{version}}` | docker/metadata-action `tags` rules. Override only when a repo needs an extra rule (e.g. `type=raw,value=stable,enable={{is_default_branch}}`). |
 | `flavor` | no | `latest=auto` | docker/metadata-action `flavor` rules. `latest=auto` pushes `:latest` only on the highest semver tag; set `latest=false` to disable, `latest=true` to always push. |
-| `build_args` | no | `""` | Newline-separated `KEY=VALUE` build args |
+| `build_args` | no | `GIT_COMMIT` + `GIT_TAG` | Newline-separated `KEY=VALUE` build args. Default stamps the image with `GIT_COMMIT=${{ github.sha }}` and `GIT_TAG=${{ github.ref_name }}`. Override only when extra args are needed — re-specify the defaults in the override if you still want them. |
 | `attest` | no | `true` | Push SLSA provenance attestation to the registry |
 
 Required secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
@@ -86,9 +86,6 @@ jobs:
     uses: cash-track/.github/.github/workflows/build.yml@main
     with:
       image: cashtrack/api
-      build_args: |
-        GIT_COMMIT=${{ github.sha }}
-        GIT_TAG=${{ github.ref_name }}
     secrets: inherit
 
   deploy:
@@ -114,9 +111,6 @@ jobs:
     uses: cash-track/.github/.github/workflows/build.yml@main
     with:
       image: cashtrack/api
-      build_args: |
-        GIT_COMMIT=${{ github.sha }}
-        GIT_TAG=${{ github.ref_name }}
     secrets: inherit
 ```
 
