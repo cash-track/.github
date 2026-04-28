@@ -21,25 +21,30 @@ A combined "ship" workflow would force a rebuild for every rollback, breaking th
 
 ### `build.yml` — build and push a Docker image
 
-Reusable build+push. Logs in to Docker Hub, builds with Buildx + GHA cache, pushes the image at
-the supplied verbatim tag (no semver normalisation), optionally pushes `:latest`, and generates
-build provenance attestation.
+Reusable build + push. Logs in to Docker Hub, derives image tags via
+[`docker/metadata-action@v5`](https://github.com/docker/metadata-action) from the calling git
+ref (so a push to `v1.2.9` produces `cashtrack/<name>:1.2.9` and `cashtrack/<name>:sha-abc1234`,
+with `:latest` controlled by `flavor`), builds with Buildx + GHA cache, pushes, and emits SLSA
+provenance attestation.
 
 Inputs:
 
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `image` | yes | — | Docker repo (e.g. `cashtrack/api`) |
-| `tag` | yes | — | Image tag — used verbatim, typically `${{ github.ref_name }}` |
 | `context` | no | `.` | Docker build context |
 | `dockerfile` | no | `Dockerfile` | Dockerfile path relative to `context` |
-| `push_latest` | no | `true` | Also push the `:latest` tag |
+| `tag_rules` | no | `type=sha` + `type=semver,pattern={{version}}` | docker/metadata-action `tags` rules. Override only when a repo needs an extra rule (e.g. `type=raw,value=stable,enable={{is_default_branch}}`). |
+| `flavor` | no | `latest=auto` | docker/metadata-action `flavor` rules. `latest=auto` pushes `:latest` only on the highest semver tag; set `latest=false` to disable, `latest=true` to always push. |
 | `build_args` | no | `""` | Newline-separated `KEY=VALUE` build args |
 | `attest` | no | `true` | Push SLSA provenance attestation to the registry |
 
 Required secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
 
-Output: `digest` — image digest of the pushed manifest, available to downstream jobs.
+Outputs:
+- `digest` — image digest of the pushed manifest.
+- `version` — primary version derived by metadata-action (e.g. `1.2.9` for git tag `v1.2.9`). **This is the value `release.yml` should pass to `deploy.yml` so the deploy tag matches what was actually pushed.**
+- `tags` — newline-separated full `image:tag` refs that were pushed.
 
 ### `deploy.yml` — deploy a service to the prod droplet
 
@@ -67,7 +72,9 @@ Required secrets: `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`.
 
 ### Caller examples
 
-`cash-track/api/.github/workflows/release.yml` — auto-fires on tag, chains build → deploy:
+`cash-track/api/.github/workflows/release.yml` — auto-fires on tag, chains build → deploy.
+Note that `deploy` consumes `needs.build.outputs.version` (the metadata-action-stripped tag),
+not `github.ref_name`, so the deploy tag matches what `build` actually pushed:
 
 ```yaml
 name: release
@@ -79,7 +86,6 @@ jobs:
     uses: cash-track/.github/.github/workflows/build.yml@main
     with:
       image: cashtrack/api
-      tag:   ${{ github.ref_name }}
       build_args: |
         GIT_COMMIT=${{ github.sha }}
         GIT_TAG=${{ github.ref_name }}
@@ -90,35 +96,32 @@ jobs:
     uses: cash-track/.github/.github/workflows/deploy.yml@main
     with:
       service: api
-      tag:     ${{ github.ref_name }}
+      tag:     ${{ needs.build.outputs.version }}
       run_migrations: true
     secrets: inherit
 ```
 
-`cash-track/api/.github/workflows/build.yml` — manual rebuild without deploy:
+`cash-track/api/.github/workflows/build.yml` — manual rebuild without deploy. Operator dispatches
+with `gh workflow run build.yml --ref v1.2.9` (or any branch / SHA); metadata-action derives the
+tag from the checked-out ref:
 
 ```yaml
 name: build
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Image tag to build (e.g. v1.2.9 or 1.2.9-rc1)"
-        required: true
-        type: string
 jobs:
   build:
     uses: cash-track/.github/.github/workflows/build.yml@main
     with:
       image: cashtrack/api
-      tag:   ${{ inputs.tag }}
       build_args: |
         GIT_COMMIT=${{ github.sha }}
-        GIT_TAG=${{ inputs.tag }}
+        GIT_TAG=${{ github.ref_name }}
     secrets: inherit
 ```
 
-`cash-track/api/.github/workflows/deploy.yml` — manual redeploy / rollback:
+`cash-track/api/.github/workflows/deploy.yml` — manual redeploy / rollback. The `tag` input is
+the bare version pushed to Docker Hub (`1.2.8`, not `v1.2.8`):
 
 ```yaml
 name: deploy
@@ -126,7 +129,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to deploy (must already exist on Docker Hub)"
+        description: "Image tag on Docker Hub (e.g. 1.2.8 — no leading v)"
         required: true
         type: string
       run_migrations:

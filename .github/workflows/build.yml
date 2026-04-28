@@ -7,10 +7,6 @@ on:
         description: "Docker repo, e.g. cashtrack/api"
         required: true
         type: string
-      tag:
-        description: "Image tag — used verbatim, no normalisation"
-        required: true
-        type: string
       context:
         required: false
         type: string
@@ -19,11 +15,21 @@ on:
         required: false
         type: string
         default: "Dockerfile"
-      push_latest:
-        description: "Also push the :latest tag"
+      tag_rules:
+        description: |
+          Newline-separated docker/metadata-action tag rules. Defaults to the org
+          convention: type=sha (sha-<short>) plus type=semver,pattern={{version}}
+          which strips the leading v from git tags (v1.2.9 -> 1.2.9).
         required: false
-        type: boolean
-        default: true
+        type: string
+        default: |
+          type=sha
+          type=semver,pattern={{version}}
+      flavor:
+        description: "docker/metadata-action flavor rules (e.g. latest=auto)"
+        required: false
+        type: string
+        default: "latest=auto"
       build_args:
         description: "Newline-separated KEY=VALUE build args"
         required: false
@@ -43,9 +49,15 @@ on:
       digest:
         description: "Image digest of the pushed manifest"
         value: ${{ jobs.build.outputs.digest }}
+      version:
+        description: "Primary version derived by docker/metadata-action (matches the deploy tag)"
+        value: ${{ jobs.build.outputs.version }}
+      tags:
+        description: "Newline-separated full image:tag refs that were pushed"
+        value: ${{ jobs.build.outputs.tags }}
 
 concurrency:
-  group: build-${{ inputs.image }}-${{ inputs.tag }}
+  group: build-${{ inputs.image }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -57,6 +69,8 @@ jobs:
       attestations: write
     outputs:
       digest: ${{ steps.push.outputs.digest }}
+      version: ${{ steps.meta.outputs.version }}
+      tags: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -70,21 +84,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Compute tags
-        id: tags
-        env:
-          IMAGE: ${{ inputs.image }}
-          TAG: ${{ inputs.tag }}
-          PUSH_LATEST: ${{ inputs.push_latest }}
-        run: |
-          {
-            echo "tags<<EOF"
-            echo "${IMAGE}:${TAG}"
-            if [[ "${PUSH_LATEST}" == "true" ]]; then
-              echo "${IMAGE}:latest"
-            fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.image }}
+          tags: ${{ inputs.tag_rules }}
+          flavor: ${{ inputs.flavor }}
 
       - name: Build and push
         id: push
@@ -93,7 +99,8 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ inputs.build_args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
