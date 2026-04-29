@@ -24,7 +24,7 @@ on:
       droplet_user:
         required: false
         type: string
-        default: "ops"
+        default: "deploy"
     secrets:
       TS_OAUTH_CLIENT_ID:
         required: true
@@ -56,4 +56,4 @@ jobs:
           DROPLET_USER: ${{ inputs.droplet_user }}
         run: |
           ssh -o StrictHostKeyChecking=accept-new "${DROPLET_USER}@${DROPLET_HOST}" \
-            "/opt/cashtrack/bin/deploy-service ${SERVICE} ${TAG} ${RUN_MIGRATIONS}"
+            "sudo -n /opt/cashtrack/bin/deploy-service ${SERVICE} ${TAG} ${RUN_MIGRATIONS}"
