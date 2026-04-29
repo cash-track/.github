@@ -265,6 +265,158 @@ jobs:
       test-command: npm run test:unit -- --run
 ```
 
+## Using these workflows from outside the `cash-track` org
+
+The workflows live in a public repo, so any GitHub repo (public or private, any owner) can call them with the same `uses: cash-track/.github/.github/workflows/<name>.yml@<ref>` syntax. The differences from in-org callers:
+
+- **Pin to an immutable ref.** You don't control changes here. Use a commit SHA (`@<40-char-sha>`) or a release tag — never `@main`. Dependabot's `package-ecosystem: github-actions` keeps the pin current.
+- **`secrets: inherit` does not cross organizations.** Pass each required secret explicitly by name, and create them in your repo (Settings → Secrets and variables → Actions) first:
+  ```yaml
+  secrets:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
+  ```
+- **Caller `GITHUB_TOKEN` permissions cap the reusable.** `build.yml` declares `id-token: write` and `attestations: write` on its own job, but the effective token is the intersection of caller workflow-level and called job-level permissions. If your repo's default token is read-only, declare them at the top of the caller workflow:
+  ```yaml
+  permissions:
+    contents: read
+    id-token: write
+    attestations: write
+  ```
+  Set `attest: false` to skip provenance entirely if you don't want to grant `id-token: write`.
+- **No org-policy gating.** `cash-track/.github` is public, so no "Allow actions from selected organizations" allowlist entry is needed in the caller's org settings — public reusable workflows are always callable.
+
+### What's actually portable
+
+| Workflow | Portable? | Notes |
+|---|---|---|
+| `build.yml` | yes | Set `image:` to your own Docker Hub repo. Bring your own `DOCKERHUB_*` secrets. |
+| `quality-php.yml` | yes | Defaults match the cash-track API; override `php-version`, `php-extensions`, `mysql-image`, `redis-image` for other apps. |
+| `quality-go.yml` | yes | Override `go-version`, `golangci-lint-version`, `test-packages` to match the project. |
+| `quality-node.yml` | yes | Set `lint-command`, `test-command`, `working-directory` to match. |
+| `deploy.yml` | yes, with droplet provisioning | Targets the cash-track shared droplet via Tailscale SSH. Callable from any repo whose service is already provisioned in `cash-track/infra` (env template, compose entry, version pin). See "Deploying an external Laravel service to the shared droplet" below. |
+| `ansible-apply.yml` | no | Checks out `cash-track/infra` and joins the cash-track tailnet. Fork and adapt. |
+
+### Minimal external caller (build + push on tag)
+
+```yaml
+name: build
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+jobs:
+  build:
+    uses: cash-track/.github/.github/workflows/build.yml@<pinned-sha-or-tag>
+    with:
+      image: yourorg/yourapp
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
+```
+
+### Minimal external caller (Node quality on PR)
+
+```yaml
+name: quality
+on:
+  pull_request:
+jobs:
+  quality:
+    uses: cash-track/.github/.github/workflows/quality-node.yml@<pinned-sha-or-tag>
+    with:
+      working-directory: ./web
+      test-command: npm test -- --run
+```
+
+### Deploying an external Laravel service to the shared droplet
+
+External Laravel apps that already run as containers on the cash-track droplet — `crashers-bot` and `home-exporter` are the existing precedents — can chain `build.yml` → `deploy.yml` exactly like in-org services. The droplet bumps the image tag, pulls, and recreates the container. No kubectl, no DOKS.
+
+This is *not* a generic Laravel-deploy reusable. It's specifically for services that share the cash-track droplet. If you need to deploy a Laravel app to your own infra, fork `deploy.yml` — the workflow's value is in the on-droplet script (`/opt/cashtrack/bin/deploy-service`) plus the Tailscale ACL grants, not in the workflow YAML.
+
+#### Prerequisites (one-time, in `cash-track/infra`)
+
+Before the caller workflow can deploy anything, the service must already exist on the droplet. That's an infra-repo PR, not a caller-repo change:
+
+1. Add the service to `versions:` in `ansible/group_vars/all/main.yml` with an initial tag.
+2. Add the bare service name to `secret_files:` in the same file.
+3. Render `ansible/roles/compose-render/templates/<service>.env.tpl` with the env vars and `op://` references for secrets (see `crashers-bot.env.tpl` as a template).
+4. Add a service block to one of the compose files under `infra/compose/` (e.g. `compose.app.yml` for HTTP services, `compose.telegram.yml` for bots) — image must read `${VERSION_<SERVICE_UPPER>}` from `.env`.
+5. Add the service name to `compose_services:` if it should run on the droplet today.
+6. Push to `main` → `ansible-apply.yml` provisions the droplet.
+
+The Tailscale ACL already grants `tag:ci` SSH to the droplet for any service that uses `deploy.yml`, so no ACL change is needed.
+
+#### Caller workflow (Laravel example, chained build → deploy)
+
+This is the shape `crashers-bot` (and any other external Laravel app) should adopt:
+
+```yaml
+name: release
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    uses: cash-track/.github/.github/workflows/build.yml@<pinned-sha>
+    with:
+      image: vovanms/crashers_bot_api   # your Docker Hub repo
+      flavor: latest=false              # don't push :latest from a non-org repo
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
+
+  deploy:
+    needs: build
+    uses: cash-track/.github/.github/workflows/deploy.yml@<pinned-sha>
+    with:
+      service: crashers-bot                       # matches versions: key (with `-`, not `_`)
+      tag:     ${{ needs.build.outputs.version }} # metadata-action-stripped semver, matches the pushed tag
+    secrets:
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET:    ${{ secrets.TS_OAUTH_SECRET }}
+```
+
+Add a separate `workflow_dispatch`-only `deploy.yml` in the caller repo for rollbacks — same shape, with a `tag` input passed straight through to the reusable.
+
+#### Secrets to add to the caller repo
+
+Four secrets, all owned by the cash-track operator. Get them from 1Password and copy into the caller repo (Settings → Secrets and variables → Actions):
+
+| Secret | Source | Used by |
+|---|---|---|
+| `DOCKERHUB_USERNAME` | Docker Hub account that has push rights to your image repo | `build.yml` |
+| `DOCKERHUB_TOKEN` | Docker Hub access token (not password) | `build.yml` |
+| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client with `auth_keys` + `devices:write` scopes, tag scope `tag:ci` | `deploy.yml` |
+| `TS_OAUTH_SECRET` | Same OAuth client's secret | `deploy.yml` |
+
+The Tailscale OAuth client is shared across all services that deploy via `deploy.yml`. You don't create a new one per repo — re-use the cash-track org's client. The bot repo just gets a copy of the same `TS_OAUTH_*` pair.
+
+#### Laravel migrations
+
+The on-droplet `deploy-service` script gates its migrate step on `SERVICE == "api"` (it runs `php app.php migrate` — Spiral, not Artisan). For any external Laravel service:
+
+- **`run_migrations: true` is a no-op.** Don't pass it expecting Artisan to run.
+- **Run migrations at container boot instead.** Make the Laravel image's entrypoint run `php artisan migrate --force` before starting RoadRunner / the queue worker. This is the cleanest path — every `deploy.yml` invocation is just an image bump + restart, and migrations happen as a side-effect of the new container starting. crashers-bot already follows this pattern.
+- **If boot-time migration is unacceptable** (e.g. a long migration that would block container readiness), petition `cash-track/infra` to extend `deploy-service` with a per-service migration command map. That's an infra-repo change — don't try to bolt it onto the caller workflow with extra SSH steps.
+
+#### Post-deploy hooks (webhooks, queue restart, cache clear)
+
+The script has no post-deploy hook system. Two options, in order of preference:
+
+1. **Make the entrypoint idempotent.** `php artisan config:cache`, `queue:restart`, telegram `webhook:set` — anything that can run safely every container start belongs in the entrypoint. Restart-style deploys (which is what `deploy.yml` does) trigger this naturally.
+2. **Don't bolt extra SSH steps onto the caller.** Re-implementing the Tailscale + SSH dance to fire one post-deploy command duplicates the reusable's auth shape and leaks the OAuth secret into ad-hoc shell. If the hook genuinely cannot live in the entrypoint, extend `deploy-service` upstream.
+
 ## Local checks
 
 `actionlint` covers all six workflows:
