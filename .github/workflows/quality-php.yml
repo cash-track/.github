@@ -113,7 +113,7 @@ jobs:
       cache:
         image: ${{ inputs.redis-image }}
         ports:
-          - 6379
+          - 6379:6379
       database:
         image: ${{ inputs.mysql-image }}
         env:
@@ -122,7 +122,7 @@ jobs:
           MYSQL_USER: cashtrack
           MYSQL_PASSWORD: secret
         ports:
-          - 3306
+          - 3306:3306
         options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
 
     steps:
