@@ -69,5 +69,5 @@ jobs:
           DROPLET_USER: ${{ inputs.droplet_user }}
         run: |
           ENCODED=$(printf '%s' "${POST_DEPLOY_CMDS}" | base64 -w0)
-          ssh "${DROPLET_USER}@${DROPLET_HOST}" \
+          ssh -o StrictHostKeyChecking=no "${DROPLET_USER}@${DROPLET_HOST}" \
             "sudo -n /opt/cashtrack/bin/deploy-service '${SERVICE}' '${TAG}' '${ENCODED}'"
