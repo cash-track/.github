@@ -8,14 +8,15 @@ on:
         required: true
         type: string
       tag:
-        description: "Image tag to deploy — used verbatim"
-        required: true
-        type: string
-      run_migrations:
-        description: "Run DB migrations on the api service before recreating the container"
+        description: "Image tag to deploy — leave blank to auto-resolve from the triggering git ref (semver tag → strip v; branch → sha-<short>)"
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: ""
+      post_deploy_cmds:
+        description: "Newline-separated commands to run inside the service container after image pull, before `up -d`. Each command is validated against a safe pattern on the server."
+        required: false
+        type: string
+        default: ""
       droplet_host:
         description: "Tailscale hostname of the droplet"
         required: false
@@ -26,9 +27,7 @@ on:
         type: string
         default: "deploy"
     secrets:
-      TS_OAUTH_CLIENT_ID:
-        required: true
-      TS_OAUTH_SECRET:
+      TS_AUTH_KEY:
         required: true
 
 concurrency:
@@ -39,21 +38,36 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: prod
+    permissions:
+      contents: read
     steps:
+      - name: Resolve deploy tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ -n "$INPUT_TAG" ]]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            echo "tag=${VERSION#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Join tailnet (ephemeral)
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@6cae46e2d796f265265cfcf628b72a32b4d7cade  # v3
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
+          authkey: ${{ secrets.TS_AUTH_KEY }}
 
       - name: Run deploy-service on droplet
         env:
           SERVICE: ${{ inputs.service }}
-          TAG: ${{ inputs.tag }}
-          RUN_MIGRATIONS: ${{ inputs.run_migrations }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          POST_DEPLOY_CMDS: ${{ inputs.post_deploy_cmds }}
           DROPLET_HOST: ${{ inputs.droplet_host }}
           DROPLET_USER: ${{ inputs.droplet_user }}
         run: |
-          ssh -o StrictHostKeyChecking=accept-new "${DROPLET_USER}@${DROPLET_HOST}" \
-            "sudo -n /opt/cashtrack/bin/deploy-service ${SERVICE} ${TAG} ${RUN_MIGRATIONS}"
+          ENCODED=$(printf '%s' "${POST_DEPLOY_CMDS}" | base64 -w0)
+          ssh "${DROPLET_USER}@${DROPLET_HOST}" \
+            "sudo -n /opt/cashtrack/bin/deploy-service '${SERVICE}' '${TAG}' '${ENCODED}'"

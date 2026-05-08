@@ -40,20 +40,24 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: ${{ inputs.node-version }}
           cache: "npm"
           cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
 
       - name: Install dependencies
-        run: ${{ inputs.install-command }}
+        env:
+          INSTALL_CMD: ${{ inputs.install-command }}
+        run: $INSTALL_CMD
 
       - name: Run linter
-        run: ${{ inputs.lint-command }}
+        env:
+          LINT_CMD: ${{ inputs.lint-command }}
+        run: $LINT_CMD
 
   test:
     name: Test
@@ -66,17 +70,21 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: ${{ inputs.node-version }}
           cache: "npm"
           cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
 
       - name: Install dependencies
-        run: ${{ inputs.install-command }}
+        env:
+          INSTALL_CMD: ${{ inputs.install-command }}
+        run: $INSTALL_CMD
 
       - name: Run tests
-        run: ${{ inputs.test-command }}
+        env:
+          TEST_CMD: ${{ inputs.test-command }}
+        run: $TEST_CMD
