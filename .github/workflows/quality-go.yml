@@ -94,7 +94,7 @@ jobs:
         run: |
           PACKAGES=$(go list ${{ inputs.test-packages }})
           if [ -n "$EXCLUDE_PACKAGES" ]; then
-            PACKAGES=$(echo "$PACKAGES" | grep -v "$EXCLUDE_PACKAGES")
+            PACKAGES=$(echo "$PACKAGES" | grep -Ev "$EXCLUDE_PACKAGES")
           fi
           go test -race -coverprofile=coverage.txt -covermode=atomic -v $PACKAGES
 
