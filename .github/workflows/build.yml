@@ -75,6 +75,7 @@ jobs:
       contents: read
       id-token: write
       attestations: write
+      artifact-metadata: write
     outputs:
       digest: ${{ steps.push.outputs.digest }}
       version: ${{ steps.meta.outputs.version }}
