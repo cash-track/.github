@@ -20,6 +20,11 @@ on:
         required: false
         type: string
         default: "./..."
+      exclude-packages:
+        description: "grep -v pattern to exclude packages from test and coverage (e.g. /mocks)"
+        required: false
+        type: string
+        default: ""
       cgo-enabled:
         required: false
         type: string
@@ -85,8 +90,13 @@ jobs:
       - name: Test
         env:
           CGO_ENABLED: ${{ inputs.cgo-enabled }}
+          EXCLUDE_PACKAGES: ${{ inputs.exclude-packages }}
         run: |
-          go test -race -coverprofile=coverage.txt -covermode=atomic -v ${{ inputs.test-packages }}
+          PACKAGES=$(go list ${{ inputs.test-packages }})
+          if [ -n "$EXCLUDE_PACKAGES" ]; then
+            PACKAGES=$(echo "$PACKAGES" | grep -v "$EXCLUDE_PACKAGES")
+          fi
+          go test -race -coverprofile=coverage.txt -covermode=atomic -v $PACKAGES
 
       - name: Upload coverage to Codecov
         if: ${{ inputs.upload-coverage }}
