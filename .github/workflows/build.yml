@@ -60,9 +60,6 @@ on:
       version:
         description: "Primary version derived by docker/metadata-action (matches the deploy tag)"
         value: ${{ jobs.build.outputs.version }}
-      tags:
-        description: "Newline-separated full image:tag refs that were pushed"
-        value: ${{ jobs.build.outputs.tags }}
 
 concurrency:
   group: build-${{ inputs.image }}-${{ github.ref }}
@@ -79,7 +76,6 @@ jobs:
     outputs:
       digest: ${{ steps.push.outputs.digest }}
       version: ${{ steps.meta.outputs.version }}
-      tags: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
