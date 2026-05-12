@@ -90,6 +90,16 @@ jobs:
             -backend-config="skip_s3_checksum=true" \
             -backend-config="use_path_style=true"
 
+      - name: Mask Terraform outputs
+        working-directory: terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_TFSTATE_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_TFSTATE_KEY }}
+        run: |
+          terraform output -json | jq -r 'to_entries[] | .value.value | tostring' | while read -r val; do
+            echo "::add-mask::$val"
+          done
+
       - name: Install 1Password CLI
         uses: 1password/install-cli-action@8d006a0d0a4fd505af7f7ce589e7f768385ff5e4  # v3
 
