@@ -39,9 +39,9 @@ on:
       TS_AUTH_KEY:
         required: true
       SPACES_TFSTATE_ID:
-        required: false
+        required: true
       SPACES_TFSTATE_KEY:
-        required: false
+        required: true
 
 concurrency:
   group: ansible-apply-prod
@@ -70,6 +70,26 @@ jobs:
           pip install "ansible-core>=2.17"
           ansible-galaxy collection install -r requirements.yml
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+        with:
+          terraform_version: "~> 1.10"
+
+      - name: Terraform init
+        working-directory: terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_TFSTATE_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_TFSTATE_KEY }}
+        run: |
+          terraform init \
+            -backend-config="endpoints={s3=\"https://ams3.digitaloceanspaces.com\"}" \
+            -backend-config="skip_credentials_validation=true" \
+            -backend-config="skip_metadata_api_check=true" \
+            -backend-config="skip_requesting_account_id=true" \
+            -backend-config="skip_region_validation=true" \
+            -backend-config="skip_s3_checksum=true" \
+            -backend-config="use_path_style=true"
+
       - name: Install 1Password CLI
         uses: 1password/install-cli-action@8d006a0d0a4fd505af7f7ce589e7f768385ff5e4  # v3
 
@@ -82,8 +102,8 @@ jobs:
         working-directory: ansible
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          SPACES_TFSTATE_ID: ${{ secrets.SPACES_TFSTATE_ID }}
-          SPACES_TFSTATE_KEY: ${{ secrets.SPACES_TFSTATE_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_TFSTATE_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_TFSTATE_KEY }}
           ANSIBLE_FORCE_COLOR: "1"
           FORCE_REPLACE_REASON: ${{ inputs.force_replace_reason }}
           ANSIBLE_TAGS: ${{ inputs.tags }}
