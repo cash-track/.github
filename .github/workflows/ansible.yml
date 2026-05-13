@@ -110,7 +110,7 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:cashtrack-infra
+          tags: tag:cashtrack-dev-ops
 
       - name: Run ansible
         working-directory: ansible
