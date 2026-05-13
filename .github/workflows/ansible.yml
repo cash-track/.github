@@ -36,7 +36,9 @@ on:
     secrets:
       OP_SERVICE_ACCOUNT_TOKEN:
         required: true
-      TS_AUTH_KEY:
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
         required: true
       SPACES_TFSTATE_ID:
         required: true
@@ -106,7 +108,9 @@ jobs:
       - name: Join tailnet
         uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8  # v4
         with:
-          authkey: ${{ secrets.TS_AUTH_KEY }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:cashtrack-infra
 
       - name: Run ansible
         working-directory: ansible
