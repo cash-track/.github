@@ -27,7 +27,9 @@ on:
         type: string
         default: "deploy"
     secrets:
-      TS_AUTH_KEY:
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
         required: true
 
 concurrency:
@@ -58,7 +60,9 @@ jobs:
       - name: Join tailnet (ephemeral)
         uses: tailscale/github-action@6cae46e2d796f265265cfcf628b72a32b4d7cade  # v3
         with:
-          authkey: ${{ secrets.TS_AUTH_KEY }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
 
       - name: Run deploy-service on droplet
         env:
