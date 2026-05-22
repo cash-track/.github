@@ -98,7 +98,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_TFSTATE_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_TFSTATE_KEY }}
         run: |
-          terraform output -json | jq -r 'to_entries[] | .value.value | tostring' | while read -r val; do
+          terraform output -json | jq -r '[.. | scalars | tostring] | .[]' | while read -r val; do
             echo "::add-mask::$val"
           done
 
