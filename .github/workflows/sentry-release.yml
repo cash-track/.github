@@ -1,0 +1,38 @@
+name: Sentry release
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: "Sentry project slug. The release is <project>@<tag>, matching the SDK's release."
+        required: true
+        type: string
+    secrets:
+      SENTRY_AUTH_TOKEN:
+        required: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Bookkeeping only: a Sentry failure must not mark a finished deploy as failed.
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          fetch-depth: 0  # set_commits needs the history back to the previous release
+
+      - name: Create release, set commits, record deploy
+        uses: getsentry/action-release@ff07929a6537bac57790c3451cf4d364aca38528  # v3.7.0
+        env:
+          # The org auth token carries the EU region URL.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}  # caller's org/repo variable
+        with:
+          projects: ${{ inputs.project }}
+          release: ${{ inputs.project }}@${{ github.ref_name }}
+          environment: production
+          set_commits: auto
+          ignore_missing: true

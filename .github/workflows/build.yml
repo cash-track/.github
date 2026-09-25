@@ -53,6 +53,9 @@ on:
         required: true
       DOCKERHUB_TOKEN:
         required: true
+      SENTRY_AUTH_TOKEN:
+        description: "Optional. Exposed to the Dockerfile as the sentry_auth_token build secret (source map upload)."
+        required: false
     outputs:
       digest:
         description: "Image digest of the pushed manifest"
@@ -107,6 +110,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: ${{ inputs.build_args }}
+          secrets: ${{ secrets.SENTRY_AUTH_TOKEN != '' && format('sentry_auth_token={0}', secrets.SENTRY_AUTH_TOKEN) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
